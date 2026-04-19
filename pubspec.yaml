@@ -47,6 +47,9 @@ dependencies:
   # File picker for attachments
   file_picker: ^8.1.7
 
+  # Temp directory for voice share
+  path_provider: ^2.1.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -4,6 +4,15 @@ enum AIIntent {
   elevenLabsTTS,
   elevenLabsMusic,
   elevenLabsSFX,
+
+  /// Start a live ElevenLabs Conversational Agent session (full-duplex voice).
+  elevenLabsAgent,
+
+  /// Place an outbound phone call via ElevenLabs + Twilio.
+  elevenLabsCall,
+
+  /// Generate a voice clip and share it via the OS share sheet.
+  elevenLabsVoiceShare,
 }
 
 enum VoiceContext {

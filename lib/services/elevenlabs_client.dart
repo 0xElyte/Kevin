@@ -386,4 +386,192 @@ class ElevenLabsClient implements IElevenLabsClient {
       return response.bodyBytes;
     });
   }
+
+  // ---------------------------------------------------------------------------
+  // Conversational Agent — WebSocket session
+  // ---------------------------------------------------------------------------
+
+  /// Starts a live ElevenLabs Conversational Agent session over WebSocket.
+  ///
+  /// The returned [AgentSession] exposes:
+  /// - [AgentSession.audioOutput] — stream of MP3 audio chunks from the agent.
+  /// - [AgentSession.sendAudio] — call with raw PCM chunks to send mic audio.
+  /// - [AgentSession.close] — cleanly ends the session.
+  ///
+  /// Throws [AgentSessionError] on connection failure.
+  /// Throws [OfflineException] if there is no network connectivity.
+  @override
+  Future<AgentSession> startAgentSession(String agentId) async {
+    return _connectivityGuard.withConnectivity(() async {
+      final settings = await _settingsService.loadSettings();
+      final apiKey = settings.elevenLabsApiKey;
+
+      WebSocket socket;
+      try {
+        socket = await WebSocket.connect(
+          'wss://api.elevenlabs.io/v1/convai/conversation?agent_id=$agentId',
+          headers: {'xi-api-key': apiKey},
+        );
+      } catch (e) {
+        throw AgentSessionError(
+          'Failed to connect to Conversational Agent: $e',
+        );
+      }
+
+      // Send initial config message.
+      socket.add(
+        jsonEncode({
+          'type': 'conversation_initiation_client_data',
+          'conversation_config_override': {
+            'agent': {'language': 'en'},
+          },
+        }),
+      );
+
+      final audioController = StreamController<Uint8List>.broadcast();
+      String conversationId = '';
+
+      socket.listen(
+        (dynamic message) {
+          if (message is String) {
+            try {
+              final json = jsonDecode(message) as Map<String, dynamic>;
+              final type = json['type'] as String?;
+              if (type == 'conversation_initiation_metadata') {
+                conversationId =
+                    json['conversation_initiation_metadata_event']?['conversation_id']
+                        as String? ??
+                    '';
+              } else if (type == 'audio') {
+                // Agent audio arrives as base64-encoded MP3 in the event.
+                final audioEvent = json['audio_event'] as Map<String, dynamic>?;
+                final b64 = audioEvent?['audio_base_64'] as String?;
+                if (b64 != null && b64.isNotEmpty) {
+                  audioController.add(base64Decode(b64));
+                }
+              }
+            } catch (_) {}
+          }
+        },
+        onDone: () => audioController.close(),
+        onError: (Object e) {
+          audioController.addError(
+            AgentSessionError('Agent WebSocket error: $e'),
+          );
+          audioController.close();
+        },
+        cancelOnError: false,
+      );
+
+      return AgentSession(
+        conversationId: conversationId,
+        audioOutput: audioController.stream,
+        sendAudio: (Uint8List chunk) {
+          if (socket.readyState == WebSocket.open) {
+            // Send PCM audio as base64 in a user_audio_chunk message.
+            socket.add(jsonEncode({'user_audio_chunk': base64Encode(chunk)}));
+          }
+        },
+        close: () async {
+          if (socket.readyState == WebSocket.open) {
+            await socket.close();
+          }
+        },
+      );
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Outbound Call — ElevenLabs + Twilio
+  // ---------------------------------------------------------------------------
+
+  /// Places an outbound phone call using the ElevenLabs Twilio integration.
+  ///
+  /// Requires:
+  /// - [agentId] — the ElevenLabs agent that will conduct the call.
+  /// - [agentPhoneNumberId] — the Twilio-linked phone number ID from ElevenLabs.
+  /// - [toNumber] — destination in E.164 format (e.g. "+1234567890").
+  ///
+  /// Returns the ElevenLabs conversation ID on success.
+  ///
+  /// Throws [OutboundCallError] if the API returns an error.
+  /// Throws [OfflineException] if there is no network connectivity.
+  @override
+  Future<String> placeOutboundCall({
+    required String agentId,
+    required String agentPhoneNumberId,
+    required String toNumber,
+    String? firstMessage,
+  }) async {
+    return _connectivityGuard.withConnectivity(() async {
+      final settings = await _settingsService.loadSettings();
+      final apiKey = settings.elevenLabsApiKey;
+
+      final uri = Uri.parse('$_baseUrl/v1/convai/twilio/outbound-call');
+
+      final body = <String, dynamic>{
+        'agent_id': agentId,
+        'agent_phone_number_id': agentPhoneNumberId,
+        'to_number': toNumber,
+      };
+
+      if (firstMessage != null && firstMessage.isNotEmpty) {
+        body['conversation_initiation_client_data'] = {
+          'conversation_config_override': {
+            'agent': {'first_message': firstMessage},
+          },
+        };
+      }
+
+      final response = await _httpClient.post(
+        uri,
+        headers: {'xi-api-key': apiKey, 'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
+
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        throw OutboundCallError(
+          'Outbound call failed with status ${response.statusCode}: ${response.body}',
+        );
+      }
+
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      return json['conversation_id'] as String? ?? '';
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // TTS — Non-streaming bytes (for voice share)
+  // ---------------------------------------------------------------------------
+
+  /// Synthesizes [text] to MP3 bytes in a single request (non-streaming).
+  /// Used when the caller needs the full audio buffer, e.g. for sharing.
+  ///
+  /// Throws [TTSSynthesisError] on failure.
+  @override
+  Future<Uint8List> synthesizeSpeechBytes(String text, String voiceId) async {
+    return _connectivityGuard.withConnectivity(() async {
+      final settings = await _settingsService.loadSettings();
+      final apiKey = settings.elevenLabsApiKey;
+
+      final uri = Uri.parse('$_baseUrl/v1/text-to-speech/$voiceId');
+      final response = await _httpClient.post(
+        uri,
+        headers: {'xi-api-key': apiKey, 'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'text': text,
+          'model_id': 'eleven_v3',
+          'language_code': 'en',
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        throw TTSSynthesisError(
+          'TTS bytes request failed with status ${response.statusCode}: ${response.body}',
+        );
+      }
+
+      return response.bodyBytes;
+    });
+  }
 }

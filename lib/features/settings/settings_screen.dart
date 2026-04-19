@@ -31,6 +31,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _elevenLabsKeyController = TextEditingController();
   final _aiApiKeyController = TextEditingController();
   final _ttsVoiceIdController = TextEditingController();
+  final _agentIdController = TextEditingController();
+  final _twilioPhoneNumberIdController = TextEditingController();
 
   bool _wakeWordEnabled = false;
   double _wakeWordSensitivity = 0.5;
@@ -51,6 +53,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _elevenLabsKeyController.text = settings.elevenLabsApiKey;
       _aiApiKeyController.text = settings.aiApiKey;
       _ttsVoiceIdController.text = settings.ttsVoiceId;
+      _agentIdController.text = settings.agentId;
+      _twilioPhoneNumberIdController.text = settings.twilioPhoneNumberId;
       _wakeWordEnabled = settings.wakeWordEnabled;
       _wakeWordSensitivity = settings.wakeWordSensitivity;
       _isLoading = false;
@@ -67,6 +71,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           elevenLabsApiKey: _elevenLabsKeyController.text.trim(),
           aiApiKey: _aiApiKeyController.text.trim(),
           ttsVoiceId: _ttsVoiceIdController.text.trim(),
+          agentId: _agentIdController.text.trim(),
+          twilioPhoneNumberId: _twilioPhoneNumberIdController.text.trim(),
           wakeWordEnabled: _wakeWordEnabled,
           wakeWordSensitivity: _wakeWordSensitivity,
         ),
@@ -96,6 +102,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _elevenLabsKeyController.dispose();
     _aiApiKeyController.dispose();
     _ttsVoiceIdController.dispose();
+    _agentIdController.dispose();
+    _twilioPhoneNumberIdController.dispose();
     super.dispose();
   }
 
@@ -146,6 +154,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   controller: _ttsVoiceIdController,
                   onEditingComplete: _saveField,
                   obscureText: false,
+                ),
+                const SizedBox(height: 24),
+                _SectionHeader(title: 'ELEVENLABS AGENT'),
+                const SizedBox(height: 12),
+                _ApiKeyField(
+                  label: 'Agent ID',
+                  controller: _agentIdController,
+                  onEditingComplete: _saveField,
+                  obscureText: false,
+                ),
+                const SizedBox(height: 4),
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, bottom: 8),
+                  child: Text(
+                    'Create an agent at elevenlabs.io/app/conversational-ai',
+                    style: GoogleFonts.exo2(
+                      color: SciFiTheme.colorTextSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                _SectionHeader(title: 'OUTBOUND CALLS (TWILIO)'),
+                const SizedBox(height: 12),
+                _ApiKeyField(
+                  label: 'Twilio Phone Number ID',
+                  controller: _twilioPhoneNumberIdController,
+                  onEditingComplete: _saveField,
+                  obscureText: false,
+                ),
+                const SizedBox(height: 4),
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, bottom: 8),
+                  child: Text(
+                    'Link a Twilio number in ElevenLabs dashboard to enable outbound calls.',
+                    style: GoogleFonts.exo2(
+                      color: SciFiTheme.colorTextSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 24),
                 _SectionHeader(title: 'WAKE WORD'),

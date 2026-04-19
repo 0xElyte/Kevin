@@ -62,5 +62,10 @@ class SettingsService {
     await prefs.setString(_keyAiApiKey, settings.aiApiKey);
     await prefs.setString(_keyTtsVoiceId, settings.ttsVoiceId);
     await prefs.setString(_keyPicovoiceApiKey, settings.picovoiceApiKey);
+    await prefs.setString(_keyAgentId, settings.agentId);
+    await prefs.setString(
+      _keyTwilioPhoneNumberId,
+      settings.twilioPhoneNumberId,
+    );
   }
 }

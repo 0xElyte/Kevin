@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io' as io;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:record/record.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/cancelable_operation.dart';
@@ -10,6 +12,8 @@ import '../../core/models/ai_response.dart';
 import '../../core/models/app_settings.dart';
 import '../../core/models/message.dart';
 import '../../core/quit_action.dart';
+import '../../core/voice_share.dart';
+import '../../features/agent/agent_session_screen.dart';
 import '../../features/wake_word/i_kevin_service.dart';
 import '../../features/wake_word/kevin_service.dart';
 import '../../features/wake_word/porcupine_wake_word_detector.dart';
@@ -73,6 +77,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   late final IntentRouter _intentRouter;
 
+  // Manual voice recording
+  final AudioRecorder _recorder = AudioRecorder();
+
   // Text controller shared with InputBar so suggestion taps can populate it.
   final TextEditingController _inputController = TextEditingController();
 
@@ -85,13 +92,37 @@ class _ConversationScreenState extends State<ConversationScreen> {
     super.initState();
     _kevinService = createKevinService();
     _quitAction = QuitAction(kevinService: _kevinService);
+    // IntentRouter is rebuilt with settings after _loadResponseMode.
     _intentRouter = IntentRouter(
       elevenLabsClient: _elevenLabsClient,
       audioPlayerService: _audioPlayerService,
     );
     _loadResponseMode();
     _startKevinServiceIfEnabled();
+    _refreshIntentRouter();
   }
+
+  /// Rebuilds the intent router with the latest agent/twilio settings.
+  Future<void> _refreshIntentRouter() async {
+    final settings = await _settingsService.loadSettings();
+    if (!mounted) return;
+    // IntentRouter is immutable so we reassign via a late field workaround.
+    // We store the mutable reference in a separate field.
+    _updateIntentRouter(settings);
+  }
+
+  IntentRouter? _liveRouter;
+
+  void _updateIntentRouter(AppSettings settings) {
+    _liveRouter = IntentRouter(
+      elevenLabsClient: _elevenLabsClient,
+      audioPlayerService: _audioPlayerService,
+      agentId: settings.agentId,
+      twilioPhoneNumberId: settings.twilioPhoneNumberId,
+    );
+  }
+
+  IntentRouter get _activeRouter => _liveRouter ?? _intentRouter;
 
   Future<void> _startKevinServiceIfEnabled() async {
     final settings = await _settingsService.loadSettings();
@@ -119,6 +150,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _rmsLevelNotifier.dispose();
     _captureDetector?.delete();
     _dismissListeningToast();
+    _recorder.dispose();
     // Cancel all active requests
     for (final operation in _activeRequests.values) {
       operation.cancel();
@@ -374,7 +406,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       return;
     }
 
-    final result = await _intentRouter.route(aiResponse);
+    final result = await _activeRouter.route(aiResponse);
 
     if (result is TextResult) {
       _updateMessage(
@@ -395,7 +427,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
         ),
       );
     } else if (result is AudioResult) {
-      // Music / SFX — render a VoiceNoteBubble with the audio bytes.
       _updateMessage(
         placeholderId,
         (m) => m.copyWith(
@@ -406,7 +437,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
           audioMimeType: 'audio/mpeg',
         ),
       );
-      // Auto-play in Voice mode.
       if (_responseMode == ResponseMode.voice) {
         await _audioPlayerService.playBytes(result.audioBytes);
       }
@@ -420,6 +450,45 @@ class _ConversationScreenState extends State<ConversationScreen> {
         ),
       );
       await _audioPlayerService.playStream(result.audioStream);
+    } else if (result is AgentSessionResult) {
+      // Remove the placeholder and open the agent session screen.
+      setState(() => _messages.removeWhere((m) => m.id == placeholderId));
+      if (mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => AgentSessionScreen(
+              session: result.session,
+              audioPlayerService: _audioPlayerService,
+            ),
+          ),
+        );
+      }
+    } else if (result is OutboundCallResult) {
+      _updateMessage(
+        placeholderId,
+        (m) => m.copyWith(
+          status: MessageStatus.delivered,
+          text:
+              '${result.responseText}\n\nCall placed. Conversation ID: ${result.conversationId}',
+          type: MessageType.text,
+        ),
+      );
+    } else if (result is VoiceShareResult) {
+      // Save and share the audio, then show confirmation.
+      _updateMessage(
+        placeholderId,
+        (m) => m.copyWith(
+          status: MessageStatus.delivered,
+          text: result.responseText,
+          type: MessageType.audioGeneration,
+          audioData: result.audioBytes,
+          audioMimeType: 'audio/mpeg',
+        ),
+      );
+      await VoiceShare.shareAudio(
+        result.audioBytes,
+        shareText: result.responseText,
+      );
     } else if (result is ErrorResult) {
       _updateMessage(
         placeholderId,
@@ -605,7 +674,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   // -------------------------------------------------------------------------
-  // Voice input flow
+  // Voice input flow (manual tap-to-record)
   // -------------------------------------------------------------------------
 
   void _handleVoicePressed() {
@@ -616,28 +685,104 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
   }
 
-  void _startRecording() {
-    // Toggle recording state. Actual mic capture is a placeholder per task spec.
+  Future<void> _startRecording() async {
+    final hasPermission = await _recorder.hasPermission();
+    if (!hasPermission) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Microphone permission denied.',
+              style: TextStyle(color: SciFiTheme.colorTextPrimary),
+            ),
+            backgroundColor: SciFiTheme.colorSurface,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Write to a temp file in the system temp directory.
+    final tmpDir = io.Directory.systemTemp;
+    final tmpPath = '${tmpDir.path}/kevin_voice_input.wav';
+
+    await _recorder.start(
+      const RecordConfig(
+        encoder: AudioEncoder.wav,
+        sampleRate: 16000,
+        numChannels: 1,
+      ),
+      path: tmpPath,
+    );
+
     setState(() => _isRecording = true);
   }
 
   Future<void> _stopRecording() async {
     setState(() => _isRecording = false);
 
-    // Placeholder: in a full implementation, stop the recorder, get audio bytes,
-    // validate duration ≥ 0.5s, then call ElevenLabsClient.transcribe().
-    // For now, show a toast indicating the feature is in progress.
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Voice input: recording stopped. Transcription coming soon.',
-            style: TextStyle(color: SciFiTheme.colorTextPrimary),
+    final path = await _recorder.stop();
+    if (path == null) return;
+
+    // Read the recorded file bytes.
+    final file = await _readFileBytes(path);
+    if (file == null || file.isEmpty) return;
+
+    // Validate minimum duration (~0.5 s at 16kHz mono 16-bit = 16000 bytes).
+    if (file.length < 16000) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Recording too short. Please speak again.',
+              style: TextStyle(color: SciFiTheme.colorTextPrimary),
+            ),
+            backgroundColor: SciFiTheme.colorSurface,
+            duration: Duration(seconds: 2),
           ),
-          backgroundColor: SciFiTheme.colorSurface,
-          duration: Duration(seconds: 2),
-        ),
-      );
+        );
+      }
+      return;
+    }
+
+    // Transcribe via ElevenLabs Scribe v2.
+    try {
+      final transcript = await _elevenLabsClient.transcribe(file);
+      if (transcript.trim().isNotEmpty) {
+        await _handleSend(transcript);
+      }
+    } on STTTranscriptionError catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Could not understand audio: ${e.message}',
+              style: const TextStyle(color: SciFiTheme.colorTextPrimary),
+            ),
+            backgroundColor: SciFiTheme.colorSurface,
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Voice input failed. Please try again.',
+              style: TextStyle(color: SciFiTheme.colorTextPrimary),
+            ),
+            backgroundColor: SciFiTheme.colorSurface,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<Uint8List?> _readFileBytes(String path) async {
+    try {
+      return await io.File(path).readAsBytes();
+    } catch (_) {
+      return null;
     }
   }
 

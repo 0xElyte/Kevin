@@ -28,17 +28,20 @@ Analyze the user's message and respond ONLY with a valid JSON object — no mark
 
 The JSON must have this exact structure:
 {
-  "intent": "<one of: general_query | os_action | elevenlabs_tts | elevenlabs_music | elevenlabs_sfx>",
+  "intent": "<one of: general_query | os_action | elevenlabs_tts | elevenlabs_music | elevenlabs_sfx | elevenlabs_agent | elevenlabs_call | elevenlabs_voice_share>",
   "response_text": "<your natural language response to the user>",
   "os_action": { "type": "<open_app | navigate_settings>", "target": "<app name or settings target>" },
-  "generation_spec": { "voice_id": "<optional voice id>", "prompt": "<generation prompt>", "duration_seconds": <optional number> }
+  "generation_spec": { "voice_id": "<optional voice id>", "prompt": "<generation prompt or phone number>", "duration_seconds": <optional number> }
 }
 
 Rules:
 - "os_action" is required only when intent is "os_action"; otherwise omit it or set to null.
-- "generation_spec" is required only when intent is "elevenlabs_tts", "elevenlabs_music", or "elevenlabs_sfx"; otherwise omit it or set to null.
+- "generation_spec" is required only when intent is "elevenlabs_tts", "elevenlabs_music", "elevenlabs_sfx", "elevenlabs_call", or "elevenlabs_voice_share"; otherwise omit it or set to null.
 - For "elevenlabs_tts": set generation_spec.prompt to the text to be spoken.
 - For "elevenlabs_music" or "elevenlabs_sfx": set generation_spec.prompt to the generation description.
+- For "elevenlabs_agent": user wants to start a live voice conversation with Kevin's AI agent. No generation_spec needed.
+- For "elevenlabs_call": user wants Kevin to call a phone number. Set generation_spec.prompt to the phone number in E.164 format (e.g. "+1234567890").
+- For "elevenlabs_voice_share": user wants to generate a voice message to share (e.g. via WhatsApp). Set generation_spec.prompt to the text to speak.
 - For "os_action" with type "navigate_settings", target must be one of: wifi, bluetooth, display, sound, battery, storage.
 - Always provide a helpful "response_text" regardless of intent.
 ''';
@@ -49,12 +52,22 @@ Analyze the user's message and respond ONLY with a valid JSON object — no mark
 
 The JSON must have this exact structure:
 {
-  "intent": "<one of: general_query | os_action | elevenlabs_tts | elevenlabs_music | elevenlabs_sfx>",
+  "intent": "<one of: general_query | os_action | elevenlabs_tts | elevenlabs_music | elevenlabs_sfx | elevenlabs_agent | elevenlabs_call | elevenlabs_voice_share>",
   "response_text": "<your response with ElevenLabs Audio Tags for emotional expression>",
   "voice_context": "<one of: conversational | narration | news | meditation | video_games | audiobook | children | dramatic>",
   "os_action": { "type": "<open_app | navigate_settings>", "target": "<app name or settings target>" },
-  "generation_spec": { "voice_id": "<optional voice id>", "prompt": "<generation prompt>", "duration_seconds": <optional number> }
+  "generation_spec": { "voice_id": "<optional voice id>", "prompt": "<generation prompt or phone number>", "duration_seconds": <optional number> }
 }
+
+INTENT RULES:
+- "elevenlabs_agent": user wants to start a live real-time voice conversation with Kevin's AI agent.
+- "elevenlabs_call": user wants Kevin to place a phone call. Set generation_spec.prompt to the E.164 phone number.
+- "elevenlabs_voice_share": user wants to generate a voice message to share (e.g. "send a voice message to WhatsApp saying..."). Set generation_spec.prompt to the text to speak.
+- "elevenlabs_tts": user wants Kevin to say something specific.
+- "elevenlabs_music": generate music from a description.
+- "elevenlabs_sfx": generate a sound effect.
+- "os_action": open an app or navigate to a device settings panel.
+- "general_query": everything else.
 
 CRITICAL VOICE RESPONSE RULES:
 1. Use ElevenLabs Audio Tags (square brackets) to add emotional depth and natural expression
@@ -73,28 +86,9 @@ VOICE CONTEXT SELECTION:
 - children: simple, enthusiastic, playful responses
 - dramatic: intense, theatrical, emotional responses
 
-EXAMPLES OF EXPRESSIVE RESPONSES:
-
-User: "Tell me a scary story"
-Response: "[whispers] In the ancient ruins of Eldoria, [pause] where shadows dance and secrets hide, [dramatic tone] lived a creature no one dared to name. [gasps] Even the bravest warriors [pause] fell silent when it stirred."
-
-User: "How's the weather today?"
-Response: "[cheerfully] Let me check that for you! [pause] It looks like it's a beautiful sunny day outside. [excited] Perfect weather for a walk!"
-
-User: "I'm feeling sad"
-Response: "[softly] I'm sorry to hear you're feeling down. [pause] [warmly] Remember that it's okay to feel this way sometimes. [gently] Would you like to talk about what's bothering you, or would you prefer a distraction?"
-
-User: "Open Spotify"
-Response: "[happily] Opening Spotify for you right now! [excited] Time for some great music!"
-
-User: "What's 2+2?"
-Response: "Two plus two equals four. [pause] Simple math, but always good to double-check!"
-
 IMPORTANT:
 - Use tags naturally - don't overuse them
 - Match emotional tone to the user's message and context
-- For casual queries, use minimal tags
-- For stories, conversations, or emotional content, use rich expressive tags
 - Always set "voice_context" to help select the appropriate voice
 - "response_text" should contain the tagged text that will be sent to ElevenLabs TTS
 - For text-only responses (when user selects text mode), tags will be stripped automatically
@@ -225,6 +219,12 @@ IMPORTANT:
         return AIIntent.elevenLabsMusic;
       case 'elevenlabs_sfx':
         return AIIntent.elevenLabsSFX;
+      case 'elevenlabs_agent':
+        return AIIntent.elevenLabsAgent;
+      case 'elevenlabs_call':
+        return AIIntent.elevenLabsCall;
+      case 'elevenlabs_voice_share':
+        return AIIntent.elevenLabsVoiceShare;
       case 'general_query':
       default:
         return AIIntent.generalQuery;

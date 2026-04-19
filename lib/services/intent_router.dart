@@ -14,12 +14,49 @@ abstract class IOSBridge {
   Future<OSActionResult> navigateToSettings(SettingsTarget target);
 }
 
-/// Interface for the ElevenLabs client (STT, TTS, Music, SFX).
+/// Interface for the ElevenLabs client (STT, TTS, Music, SFX, Agent, Calls).
 abstract class IElevenLabsClient {
   Future<String> transcribe(Uint8List audioBytes);
   Stream<Uint8List> synthesizeSpeech(String text, String voiceId);
   Future<Uint8List> generateMusic(String prompt);
   Future<Uint8List> generateSoundEffect(String prompt);
+
+  /// Starts a live Conversational Agent WebSocket session.
+  /// Returns a [AgentSession] that the caller can use to send/receive audio.
+  Future<AgentSession> startAgentSession(String agentId);
+
+  /// Places an outbound phone call via ElevenLabs + Twilio.
+  /// Returns the conversation ID on success.
+  Future<String> placeOutboundCall({
+    required String agentId,
+    required String agentPhoneNumberId,
+    required String toNumber,
+    String? firstMessage,
+  });
+
+  /// Synthesizes [text] to MP3 bytes (non-streaming) for sharing.
+  Future<Uint8List> synthesizeSpeechBytes(String text, String voiceId);
+}
+
+/// Represents a live ElevenLabs Conversational Agent WebSocket session.
+class AgentSession {
+  final String conversationId;
+
+  /// Stream of audio chunks (MP3) received from the agent.
+  final Stream<Uint8List> audioOutput;
+
+  /// Sink to send raw PCM audio chunks to the agent.
+  final void Function(Uint8List chunk) sendAudio;
+
+  /// Ends the session cleanly.
+  final Future<void> Function() close;
+
+  const AgentSession({
+    required this.conversationId,
+    required this.audioOutput,
+    required this.sendAudio,
+    required this.close,
+  });
 }
 
 /// Interface for the audio player service.
@@ -73,6 +110,30 @@ class ErrorResult extends RouterResult {
   ErrorResult({required this.message, this.error});
 }
 
+/// A live agent session was started.
+class AgentSessionResult extends RouterResult {
+  final AgentSession session;
+  final String responseText;
+  AgentSessionResult({required this.session, required this.responseText});
+}
+
+/// An outbound call was placed successfully.
+class OutboundCallResult extends RouterResult {
+  final String conversationId;
+  final String responseText;
+  OutboundCallResult({
+    required this.conversationId,
+    required this.responseText,
+  });
+}
+
+/// A voice clip was generated and is ready to share.
+class VoiceShareResult extends RouterResult {
+  final Uint8List audioBytes;
+  final String responseText;
+  VoiceShareResult({required this.audioBytes, required this.responseText});
+}
+
 // ---------------------------------------------------------------------------
 // IntentRouter
 // ---------------------------------------------------------------------------
@@ -89,11 +150,19 @@ class IntentRouter {
   /// Default voice ID used when the generation spec does not specify one.
   final String defaultVoiceId;
 
+  /// ElevenLabs Conversational Agent ID.
+  final String agentId;
+
+  /// ElevenLabs-linked Twilio phone number ID for outbound calls.
+  final String twilioPhoneNumberId;
+
   IntentRouter({
     this.osBridge,
     this.elevenLabsClient,
     this.audioPlayerService,
     this.defaultVoiceId = '',
+    this.agentId = '',
+    this.twilioPhoneNumberId = '',
   });
 
   /// Routes [response] to the appropriate service and returns a [RouterResult]
@@ -108,6 +177,12 @@ class IntentRouter {
         return _handleMusic(response);
       case AIIntent.elevenLabsSFX:
         return _handleSFX(response);
+      case AIIntent.elevenLabsAgent:
+        return _handleAgent(response);
+      case AIIntent.elevenLabsCall:
+        return _handleOutboundCall(response);
+      case AIIntent.elevenLabsVoiceShare:
+        return _handleVoiceShare(response);
       case AIIntent.generalQuery:
         return _handleGeneralQuery(response);
     }
@@ -238,6 +313,102 @@ class IntentRouter {
     // General queries are rendered as text; TTS is applied by the UI layer
     // based on the active ResponseMode.
     return TextResult(response.responseText);
+  }
+
+  // -------------------------------------------------------------------------
+  // New ElevenLabs handlers
+  // -------------------------------------------------------------------------
+
+  Future<RouterResult> _handleAgent(AIResponse response) async {
+    final client = elevenLabsClient;
+    if (client == null) {
+      return ErrorResult(message: 'ElevenLabs client is not available.');
+    }
+    final effectiveAgentId = agentId;
+    if (effectiveAgentId.isEmpty) {
+      return ErrorResult(
+        message:
+            'No Agent ID configured. Please set your ElevenLabs Agent ID in Settings.',
+      );
+    }
+    try {
+      final session = await client.startAgentSession(effectiveAgentId);
+      return AgentSessionResult(
+        session: session,
+        responseText: response.responseText,
+      );
+    } catch (e) {
+      return ErrorResult(
+        message: 'Failed to start agent session: ${e.toString()}',
+        error: e,
+      );
+    }
+  }
+
+  Future<RouterResult> _handleOutboundCall(AIResponse response) async {
+    final client = elevenLabsClient;
+    if (client == null) {
+      return ErrorResult(message: 'ElevenLabs client is not available.');
+    }
+    if (agentId.isEmpty) {
+      return ErrorResult(
+        message: 'No Agent ID configured. Please set it in Settings.',
+      );
+    }
+    if (twilioPhoneNumberId.isEmpty) {
+      return ErrorResult(
+        message:
+            'No Twilio Phone Number ID configured. Please set it in Settings.',
+      );
+    }
+    // Extract the destination number from the generation spec prompt or response text.
+    final toNumber = response.generationSpec?.prompt ?? '';
+    if (toNumber.isEmpty) {
+      return ErrorResult(
+        message:
+            'No phone number provided. Say "call +1234567890" to place a call.',
+      );
+    }
+    try {
+      final conversationId = await client.placeOutboundCall(
+        agentId: agentId,
+        agentPhoneNumberId: twilioPhoneNumberId,
+        toNumber: toNumber,
+        firstMessage: response.responseText,
+      );
+      return OutboundCallResult(
+        conversationId: conversationId,
+        responseText: response.responseText,
+      );
+    } catch (e) {
+      return ErrorResult(
+        message: 'Outbound call failed: ${e.toString()}',
+        error: e,
+      );
+    }
+  }
+
+  Future<RouterResult> _handleVoiceShare(AIResponse response) async {
+    final client = elevenLabsClient;
+    if (client == null) {
+      return ErrorResult(message: 'ElevenLabs client is not available.');
+    }
+    final text = response.generationSpec?.prompt ?? response.responseText;
+    final voiceId = response.generationSpec?.voiceId?.isNotEmpty == true
+        ? response.generationSpec!.voiceId!
+        : defaultVoiceId;
+    try {
+      final bytes = await client.synthesizeSpeechBytes(text, voiceId);
+      return VoiceShareResult(
+        audioBytes: bytes,
+        responseText: response.responseText,
+      );
+    } catch (e) {
+      return ErrorResult(
+        message: 'Voice share generation failed: ${e.toString()}',
+        error: e,
+      );
+    }
   }
 
   // -------------------------------------------------------------------------

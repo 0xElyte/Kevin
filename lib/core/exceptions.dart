@@ -87,3 +87,19 @@ class SoundEffectGenerationError implements Exception {
   @override
   String toString() => 'SoundEffectGenerationError: $message';
 }
+
+class AgentSessionError implements Exception {
+  final String message;
+  const AgentSessionError(this.message);
+
+  @override
+  String toString() => 'AgentSessionError: $message';
+}
+
+class OutboundCallError implements Exception {
+  final String message;
+  const OutboundCallError(this.message);
+
+  @override
+  String toString() => 'OutboundCallError: $message';
+}
