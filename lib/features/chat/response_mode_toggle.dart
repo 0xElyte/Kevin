@@ -83,31 +83,33 @@ class _SegmentedToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 28,
       decoration: BoxDecoration(
         color: SciFiTheme.colorSurface,
         borderRadius: BorderRadius.circular(SciFiTheme.borderRadius),
         border: Border.all(color: SciFiTheme.colorAccentDim),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _Segment(
-            label: 'VOICE',
-            icon: Icons.mic,
-            active: selected == ResponseMode.voice,
-            isFirst: true,
-            onTap: () => onSelect(ResponseMode.voice),
-          ),
-          Container(width: 1, color: SciFiTheme.colorAccentDim),
-          _Segment(
-            label: 'TEXT',
-            icon: Icons.chat_bubble_outline,
-            active: selected == ResponseMode.text,
-            isFirst: false,
-            onTap: () => onSelect(ResponseMode.text),
-          ),
-        ],
+      child: IntrinsicHeight(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _Segment(
+              label: 'VOICE',
+              icon: Icons.mic,
+              active: selected == ResponseMode.voice,
+              isFirst: true,
+              onTap: () => onSelect(ResponseMode.voice),
+            ),
+            Container(width: 1, color: SciFiTheme.colorAccentDim),
+            _Segment(
+              label: 'TEXT',
+              icon: Icons.chat_bubble_outline,
+              active: selected == ResponseMode.text,
+              isFirst: false,
+              onTap: () => onSelect(ResponseMode.text),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -148,13 +150,14 @@ class _Segment extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(color: bgColor, borderRadius: radius),
         child: Row(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Icon(icon, size: 12, color: fgColor),
-            const SizedBox(width: 4),
+            Icon(icon, size: 13, color: fgColor),
+            const SizedBox(width: 5),
             Text(
               label,
               style: GoogleFonts.orbitron(

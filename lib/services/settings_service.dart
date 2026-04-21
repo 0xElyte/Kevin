@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/app_config.dart';
 import '../core/models/app_settings.dart';
 
 class SettingsService {
@@ -40,12 +41,24 @@ class SettingsService {
       responseMode: responseMode,
       wakeWordEnabled: prefs.getBool(_keyWakeWordEnabled) ?? false,
       wakeWordSensitivity: prefs.getDouble(_keyWakeWordSensitivity) ?? 0.5,
-      elevenLabsApiKey: prefs.getString(_keyElevenLabsApiKey) ?? '',
-      aiApiKey: prefs.getString(_keyAiApiKey) ?? '',
-      ttsVoiceId: prefs.getString(_keyTtsVoiceId) ?? '',
+      elevenLabsApiKey:
+          prefs.getString(_keyElevenLabsApiKey)?.isNotEmpty == true
+          ? prefs.getString(_keyElevenLabsApiKey)!
+          : AppConfig.elevenLabsApiKey,
+      aiApiKey: prefs.getString(_keyAiApiKey)?.isNotEmpty == true
+          ? prefs.getString(_keyAiApiKey)!
+          : AppConfig.aiApiKey,
+      ttsVoiceId: prefs.getString(_keyTtsVoiceId)?.isNotEmpty == true
+          ? prefs.getString(_keyTtsVoiceId)!
+          : AppConfig.ttsVoiceId,
       picovoiceApiKey: prefs.getString(_keyPicovoiceApiKey) ?? '',
-      agentId: prefs.getString(_keyAgentId) ?? '',
-      twilioPhoneNumberId: prefs.getString(_keyTwilioPhoneNumberId) ?? '',
+      agentId: prefs.getString(_keyAgentId)?.isNotEmpty == true
+          ? prefs.getString(_keyAgentId)!
+          : AppConfig.agentId,
+      twilioPhoneNumberId:
+          prefs.getString(_keyTwilioPhoneNumberId)?.isNotEmpty == true
+          ? prefs.getString(_keyTwilioPhoneNumberId)!
+          : AppConfig.twilioPhoneNumberId,
     );
   }
 

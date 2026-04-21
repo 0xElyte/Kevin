@@ -177,7 +177,7 @@ class _InputBarState extends State<InputBar> {
 
           // Main input row
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               // Attach button
               _AttachButton(onPressed: _pickFile),
@@ -262,16 +262,12 @@ class _InputBarState extends State<InputBar> {
                           color: SciFiTheme.colorAccent,
                           fontSize: 11,
                         ),
-                      ),
-                    ),
-                    // Inline character counter
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2, right: 4),
-                      child: Text(
-                        '$charCount / $_maxLength',
-                        style: GoogleFonts.exo2(
-                          color: counterColor,
-                          fontSize: 10,
+                        suffix: Text(
+                          '$charCount / $_maxLength',
+                          style: GoogleFonts.exo2(
+                            color: counterColor,
+                            fontSize: 10,
+                          ),
                         ),
                       ),
                     ),

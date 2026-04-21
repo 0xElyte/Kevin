@@ -1,8 +1,6 @@
 // Feature: project-kevin, Property 1: Message Bubble Alignment Matches Role
 // Validates: Requirements 2.2, 2.3
 
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:glados/glados.dart' hide expect, group, test;

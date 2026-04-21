@@ -47,7 +47,22 @@ class KevinAppBar extends StatelessWidget implements PreferredSizeWidget {
         ),
       ),
       actions: [
-        ResponseModeToggle(onChanged: onResponseModeChanged),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(
+              'AI RESPONSE TYPE',
+              style: GoogleFonts.orbitron(
+                color: SciFiTheme.colorTextSecondary,
+                fontSize: 9,
+                letterSpacing: 1.2,
+              ),
+            ),
+            const SizedBox(width: 8),
+            ResponseModeToggle(onChanged: onResponseModeChanged),
+          ],
+        ),
         const SizedBox(width: 4),
         if (onSettingsPressed != null)
           IconButton(

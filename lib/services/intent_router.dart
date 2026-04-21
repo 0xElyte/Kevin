@@ -16,7 +16,10 @@ abstract class IOSBridge {
 
 /// Interface for the ElevenLabs client (STT, TTS, Music, SFX, Agent, Calls).
 abstract class IElevenLabsClient {
-  Future<String> transcribe(Uint8List audioBytes);
+  Future<String> transcribe(
+    Uint8List audioBytes, {
+    String filename = 'audio.wav',
+  });
   Stream<Uint8List> synthesizeSpeech(String text, String voiceId);
   Future<Uint8List> generateMusic(String prompt);
   Future<Uint8List> generateSoundEffect(String prompt);

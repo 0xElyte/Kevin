@@ -81,7 +81,7 @@ class _SuggestionCardGridState extends State<SuggestionCardGrid>
   List<SuggestionCard> _visibleCards = [];
 
   static const int _cardsPerSet = 6;
-  static const Duration _displayDuration = Duration(seconds: 4);
+  static const Duration _displayDuration = Duration(seconds: 5);
   static const Duration _animationDuration = Duration(milliseconds: 600);
 
   @override

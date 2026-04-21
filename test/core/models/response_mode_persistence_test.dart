@@ -2,7 +2,6 @@
 // Validates: Requirements 5.4
 
 import 'package:glados/glados.dart';
-import 'package:test/test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:project_kevin/core/models/app_settings.dart';

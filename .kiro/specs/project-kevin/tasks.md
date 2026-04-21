@@ -232,7 +232,7 @@ Implement Project Kevin as a Flutter/Dart application targeting Android and Wind
     - For any `SuggestionCard`, tapping it sets `InputBar` text to exactly `card.promptText`
     - **Validates: Requirements 15.3**
 
-  - [~] 13.6 Write widget tests for `ConversationView`
+  - [ ] 13.6 Write widget tests for `ConversationView`
     - Empty state shows ≥6 suggestion cards; active state hides them; auto-scroll on new message
     - _Requirements: 2.1, 2.8, 15.1, 15.5, 15.6_
 
@@ -248,16 +248,16 @@ Implement Project Kevin as a Flutter/Dart application targeting Android and Wind
     - Voice / Text toggle switch, reads/writes `ResponseMode` via `SettingsService`
     - _Requirements: 5.1, 5.4, 5.5_
 
-  - [~] 14.3 Write property test for response delivery mode (Property 2)
+  - [ ] 14.3 Write property test for response delivery mode (Property 2)
     - **Property 2: Response Delivery Mode Matches Active ResponseMode**
     - For `ResponseMode.voice`, TTS pipeline is invoked; for `ResponseMode.text`, text bubble rendered and TTS not called
     - **Validates: Requirements 5.2, 5.3**
 
-  - [~] 14.4 Write widget tests for `InputBar`
+  - [ ] 14.4 Write widget tests for `InputBar`
     - Send button disabled when empty; enabled when non-empty; character limit error shown at 2001 chars
     - _Requirements: 3.2, 3.3_
 
-  - [~] 14.5 Write widget test for `ResponseModeToggle` persistence
+  - [ ] 14.5 Write widget test for `ResponseModeToggle` persistence
     - Toggle persists selection across widget rebuilds
     - _Requirements: 5.4_
 
@@ -289,12 +289,12 @@ Implement Project Kevin as a Flutter/Dart application targeting Android and Wind
     - SciFi_Theme styled
     - _Requirements: 11.3, 12.4, 14.6_
 
-  - [~] 17.3 Write property test for STT submission dismisses ListeningToast (Property 10)
+  - [ ] 17.3 Write property test for STT submission dismisses ListeningToast (Property 10)
     - **Property 10: STT Submission Dismisses ListeningToast**
     - For any audio submission event, `ListeningToast` is dismissed before or at the moment of STT call
     - **Validates: Requirements 11.7**
 
-  - [~] 17.4 Write widget tests for `ListeningToast`
+  - [ ] 17.4 Write widget tests for `ListeningToast`
     - Appears on `WakeWordEvent`; dismisses on STT submission; `VoiceInputMeter` animates with RMS level
     - _Requirements: 11.3, 11.4, 11.7_
 
@@ -310,12 +310,12 @@ Implement Project Kevin as a Flutter/Dart application targeting Android and Wind
     - Discard and return to listening if captured audio < 0.5s
     - _Requirements: 11.6, 11.8_
 
-  - [~] 18.3 Write property test for wake word triggers ListeningToast and mic capture (Property 9)
+  - [ ] 18.3 Write property test for wake word triggers ListeningToast and mic capture (Property 9)
     - **Property 9: Wake Word Event Triggers ListeningToast and Mic Capture**
     - For any `WakeWordEvent`, both `ListeningToast` becomes visible and mic capture begins
     - **Validates: Requirements 11.3, 11.5**
 
-  - [~] 18.4 Write property test for silence timeout triggers STT submission (Property 11)
+  - [ ] 18.4 Write property test for silence timeout triggers STT submission (Property 11)
     - **Property 11: Silence Timeout Triggers STT Submission**
     - For any active capture session, 2s of silence below threshold causes STT submission
     - **Validates: Requirements 11.6**
@@ -334,7 +334,7 @@ Implement Project Kevin as a Flutter/Dart application targeting Android and Wind
     - Spawn Porcupine in a Dart isolate at app start
     - _Requirements: 12.1, 12.2_
 
-  - [~] 19.3 Write property test for Kevin_Service running implies Wake_Word_Detector active (Property 12)
+  - [ ] 19.3 Write property test for Kevin_Service running implies Wake_Word_Detector active (Property 12)
     - **Property 12: Kevin_Service Running Implies Wake_Word_Detector Active**
     - For any state where `Kevin_Service.isRunning == true`, `Wake_Word_Detector.isActive == true`
     - **Validates: Requirements 12.3**
@@ -346,12 +346,12 @@ Implement Project Kevin as a Flutter/Dart application targeting Android and Wind
     - Wire to AppBar Quit button and notification "Quit" `PendingIntent`
     - _Requirements: 13.2, 13.3, 13.4, 13.5_
 
-  - [~] 20.2 Write property test for Quit_Action terminates all components (Property 13)
+  - [ ] 20.2 Write property test for Quit_Action terminates all components (Property 13)
     - **Property 13: Quit_Action Terminates All Kevin Components**
     - For any `Quit_Action` invocation, after completion: `Kevin_Service.isRunning == false`, `Wake_Word_Detector.isActive == false`, notification dismissed
     - **Validates: Requirements 13.3, 13.4**
 
-  - [~] 20.3 Write unit tests for `Quit_Action`
+  - [ ] 20.3 Write unit tests for `Quit_Action`
     - Verify service stopped, detector deactivated, notification dismissed in all invocation paths
     - _Requirements: 13.2, 13.3, 13.4, 13.5_
 
@@ -403,26 +403,26 @@ Implement Project Kevin as a Flutter/Dart application targeting Android and Wind
     - Ensure `TimeoutException` error bubble includes a Retry button that re-submits the last request
     - _Requirements: 10.1, 10.2, 4.5, 9.4, 6.5, 8.4, 8.5, 3.3, 4.6_
 
-- [~] 25. Remaining property-based tests
-  - [~] 25.1 Write property test for OS action result feedback (Property 5) — if not already covered in task 9.5
+- [ ] 25. Remaining property-based tests
+  - [ ] 25.1 Write property test for OS action result feedback (Property 5) — if not already covered in task 9.5
     - **Property 5: OS Action Result Always Produces User Feedback**
     - **Validates: Requirements 6.4, 6.5**
 
-  - [~] 25.2 Write property test for response delivery mode (Property 2) — if not already covered in task 14.3
+  - [ ] 25.2 Write property test for response delivery mode (Property 2) — if not already covered in task 14.3
     - **Property 2: Response Delivery Mode Matches Active ResponseMode**
     - **Validates: Requirements 5.2, 5.3**
 
-- [~] 26. Remaining unit and widget tests
-  - [~] 26.1 Write unit tests for `AI_Engine` intent classification (all 5 intent types)
+- [ ] 26. Remaining unit and widget tests
+  - [ ] 26.1 Write unit tests for `AI_Engine` intent classification (all 5 intent types)
     - _Requirements: 6.1, 7.1_
 
-  - [~] 26.2 Write unit tests for `OS_Bridge` settings mapping (all 6 `SettingsTarget` values, both platforms)
+  - [ ] 26.2 Write unit tests for `OS_Bridge` settings mapping (all 6 `SettingsTarget` values, both platforms)
     - _Requirements: 6.2, 6.3_
 
-  - [~] 26.3 Write widget tests for `ConversationView` empty and active states
+  - [ ] 26.3 Write widget tests for `ConversationView` empty and active states
     - _Requirements: 15.1, 15.5, 15.6_
 
-  - [~] 26.4 Write widget test for `ResponseModeToggle` persistence across rebuilds
+  - [ ] 26.4 Write widget test for `ResponseModeToggle` persistence across rebuilds
     - _Requirements: 5.4_
 
 - [x] 27. Final checkpoint — Ensure all tests pass

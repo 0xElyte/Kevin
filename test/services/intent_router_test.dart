@@ -49,7 +49,10 @@ class MockElevenLabsClient implements IElevenLabsClient {
   final Uint8List fakeAudio = Uint8List.fromList([1, 2, 3]);
 
   @override
-  Future<String> transcribe(Uint8List audioBytes) async {
+  Future<String> transcribe(
+    Uint8List audioBytes, {
+    String filename = 'audio.wav',
+  }) async {
     return 'Mock transcript';
   }
 
@@ -68,6 +71,31 @@ class MockElevenLabsClient implements IElevenLabsClient {
   @override
   Future<Uint8List> generateSoundEffect(String prompt) async {
     sfxCalls.add(prompt);
+    return fakeAudio;
+  }
+
+  @override
+  Future<AgentSession> startAgentSession(String agentId) async {
+    return AgentSession(
+      conversationId: 'mock-conv-id',
+      audioOutput: Stream.value(fakeAudio),
+      sendAudio: (_) {},
+      close: () async {},
+    );
+  }
+
+  @override
+  Future<String> placeOutboundCall({
+    required String agentId,
+    required String agentPhoneNumberId,
+    required String toNumber,
+    String? firstMessage,
+  }) async {
+    return 'mock-conversation-id';
+  }
+
+  @override
+  Future<Uint8List> synthesizeSpeechBytes(String text, String voiceId) async {
     return fakeAudio;
   }
 }

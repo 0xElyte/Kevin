@@ -8,21 +8,17 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/cancelable_operation.dart';
 import '../../core/exceptions.dart';
-import '../../core/models/ai_response.dart';
 import '../../core/models/app_settings.dart';
 import '../../core/models/message.dart';
 import '../../core/quit_action.dart';
-import '../../core/voice_share.dart';
-import '../../features/agent/agent_session_screen.dart';
 import '../../features/wake_word/i_kevin_service.dart';
 import '../../features/wake_word/kevin_service.dart';
 import '../../features/wake_word/porcupine_wake_word_detector.dart';
-import '../../services/ai_engine.dart';
+import '../../services/agent_chat_engine.dart';
 import '../../services/audio_player_service.dart';
 import '../../services/elevenlabs_client.dart';
 import '../../services/intent_router.dart';
 import '../../services/settings_service.dart';
-import '../../services/voice_selector.dart';
 import '../../theme/scifi_theme.dart';
 import '../settings/settings_screen.dart';
 import 'conversation_view.dart';
@@ -68,14 +64,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
   // -------------------------------------------------------------------------
 
   final _uuid = const Uuid();
-  final _aiEngine = AIEngine();
+  final _agentChatEngine = AgentChatEngine();
   final _elevenLabsClient = ElevenLabsClient();
   final _audioPlayerService = AudioPlayerService();
   final _settingsService = SettingsService.instance;
   late final IKevinService _kevinService;
   late final QuitAction _quitAction;
-
-  late final IntentRouter _intentRouter;
 
   // Manual voice recording
   final AudioRecorder _recorder = AudioRecorder();
@@ -92,37 +86,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
     super.initState();
     _kevinService = createKevinService();
     _quitAction = QuitAction(kevinService: _kevinService);
-    // IntentRouter is rebuilt with settings after _loadResponseMode.
-    _intentRouter = IntentRouter(
-      elevenLabsClient: _elevenLabsClient,
-      audioPlayerService: _audioPlayerService,
-    );
     _loadResponseMode();
     _startKevinServiceIfEnabled();
-    _refreshIntentRouter();
   }
-
-  /// Rebuilds the intent router with the latest agent/twilio settings.
-  Future<void> _refreshIntentRouter() async {
-    final settings = await _settingsService.loadSettings();
-    if (!mounted) return;
-    // IntentRouter is immutable so we reassign via a late field workaround.
-    // We store the mutable reference in a separate field.
-    _updateIntentRouter(settings);
-  }
-
-  IntentRouter? _liveRouter;
-
-  void _updateIntentRouter(AppSettings settings) {
-    _liveRouter = IntentRouter(
-      elevenLabsClient: _elevenLabsClient,
-      audioPlayerService: _audioPlayerService,
-      agentId: settings.agentId,
-      twilioPhoneNumberId: settings.twilioPhoneNumberId,
-    );
-  }
-
-  IntentRouter get _activeRouter => _liveRouter ?? _intentRouter;
 
   Future<void> _startKevinServiceIfEnabled() async {
     final settings = await _settingsService.loadSettings();
@@ -182,7 +148,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
   // Send flow
   // -------------------------------------------------------------------------
 
-  Future<void> _handleSend(String text, {String? attachmentPath}) async {
+  Future<void> _handleSend(
+    String text, {
+    String? attachmentPath,
+    bool fromVoice = false,
+  }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty || _isProcessing) return;
 
@@ -250,26 +220,72 @@ class _ConversationScreenState extends State<ConversationScreen> {
     CancelableOperation operation,
   ) async {
     try {
-      // Check if cancelled before starting.
       operation.checkCancelled();
 
-      // 3. Call AI engine with voice mode flag.
-      final aiResponse = await _aiEngine.process(
+      final settings = await _settingsService.loadSettings();
+      final voiceId = settings.ttsVoiceId.isNotEmpty
+          ? settings.ttsVoiceId
+          : 'JBFqnCBsd6RMkjVDRZzb';
+
+      // Step 1: Convert user text → PCM audio via ElevenLabs TTS.
+      // pcm_16000 is exactly what the agent WebSocket expects as user_audio_chunk.
+      final pcmBytes = await _elevenLabsClient.synthesizeSpeechPcm(
         text,
-        isVoiceMode: _responseMode == ResponseMode.voice,
+        voiceId,
       );
 
-      // Check if cancelled after AI response.
       operation.checkCancelled();
 
-      // 4. Route the response.
-      await _handleAIResponse(aiResponse, placeholderId);
+      // Step 2: Send PCM audio to agent, get MP3 audio response back.
+      final result = await _agentChatEngine.send(pcmBytes);
+
+      operation.checkCancelled();
+
+      if (!result.hasAudio) {
+        _updateMessage(
+          placeholderId,
+          (m) => m.copyWith(
+            status: MessageStatus.error,
+            text: 'Agent returned no audio response.',
+            type: MessageType.error,
+            retryable: true,
+          ),
+        );
+        return;
+      }
+
+      // Step 3: Render based on response mode toggle.
+      if (_responseMode == ResponseMode.text) {
+        // TEXT mode: transcribe agent MP3 response → show as text bubble.
+        final transcript = await _elevenLabsClient.transcribe(
+          result.audioBytes,
+          filename: 'audio.mp3',
+        );
+        _updateMessage(
+          placeholderId,
+          (m) => m.copyWith(
+            status: MessageStatus.delivered,
+            text: transcript.isNotEmpty ? transcript : '(no response)',
+            type: MessageType.text,
+          ),
+        );
+      } else {
+        // VOICE mode: play audio + show voice note bubble.
+        _updateMessage(
+          placeholderId,
+          (m) => m.copyWith(
+            status: MessageStatus.delivered,
+            text: '',
+            type: MessageType.voiceNote,
+            audioData: result.audioBytes,
+            audioMimeType: 'audio/mpeg',
+          ),
+        );
+        await _audioPlayerService.playBytes(result.audioBytes);
+      }
     } on OperationCancelledException {
-      // Request was cancelled - do nothing, message already removed.
       return;
     } on OfflineException {
-      // Req 10.1: attempt offline fallback for OS actions and time/date queries.
-      // These do not require network connectivity.
       final offlineResult = _tryOfflineFallback(text);
       if (offlineResult != null) {
         _updateMessage(
@@ -281,7 +297,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
           ),
         );
       } else {
-        // Network is required — show red inline error bubble.
         _updateMessage(
           placeholderId,
           (m) => m.copyWith(
@@ -292,19 +307,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
           ),
         );
       }
-    } on TimeoutException {
-      // Req 10.2: error bubble with Retry button.
-      _updateMessage(
-        placeholderId,
-        (m) => m.copyWith(
-          status: MessageStatus.error,
-          text: 'Request timed out. Please try again.',
-          type: MessageType.error,
-          retryable: true,
-        ),
-      );
     } on STTTranscriptionError {
-      // Req 4.5: prompt user to try again.
       _updateMessage(
         placeholderId,
         (m) => m.copyWith(
@@ -314,15 +317,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
           retryable: false,
         ),
       );
-    } on OSActionError catch (e) {
-      // Req 6.5: descriptive message with app name and reason.
+    } on AgentSessionError catch (e) {
       _updateMessage(
         placeholderId,
         (m) => m.copyWith(
           status: MessageStatus.error,
-          text: e.message,
+          text: 'Agent error: ${e.message}',
           type: MessageType.error,
-          retryable: false,
+          retryable: true,
         ),
       );
     } catch (e) {
@@ -336,7 +338,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
         ),
       );
     } finally {
-      // Clear processing state.
       _activeRequests.remove(placeholderId);
       if (mounted) {
         setState(() {
@@ -392,164 +393,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
 
     return null;
-  }
-
-  Future<void> _handleAIResponse(
-    AIResponse aiResponse,
-    String placeholderId,
-  ) async {
-    // For general queries in Voice mode, synthesize TTS.
-    if (_responseMode == ResponseMode.voice &&
-        (aiResponse.intent == AIIntent.generalQuery ||
-            aiResponse.intent == AIIntent.osAction)) {
-      await _handleVoiceResponse(aiResponse, placeholderId);
-      return;
-    }
-
-    final result = await _activeRouter.route(aiResponse);
-
-    if (result is TextResult) {
-      _updateMessage(
-        placeholderId,
-        (m) => m.copyWith(
-          status: MessageStatus.delivered,
-          text: result.text,
-          type: MessageType.text,
-        ),
-      );
-    } else if (result is OSActionRouterResult) {
-      _updateMessage(
-        placeholderId,
-        (m) => m.copyWith(
-          status: MessageStatus.delivered,
-          text: result.confirmationText,
-          type: MessageType.text,
-        ),
-      );
-    } else if (result is AudioResult) {
-      _updateMessage(
-        placeholderId,
-        (m) => m.copyWith(
-          status: MessageStatus.delivered,
-          text: result.responseText,
-          type: MessageType.audioGeneration,
-          audioData: result.audioBytes,
-          audioMimeType: 'audio/mpeg',
-        ),
-      );
-      if (_responseMode == ResponseMode.voice) {
-        await _audioPlayerService.playBytes(result.audioBytes);
-      }
-    } else if (result is TTSStreamResult) {
-      _updateMessage(
-        placeholderId,
-        (m) => m.copyWith(
-          status: MessageStatus.delivered,
-          text: result.responseText,
-          type: MessageType.voiceNote,
-        ),
-      );
-      await _audioPlayerService.playStream(result.audioStream);
-    } else if (result is AgentSessionResult) {
-      // Remove the placeholder and open the agent session screen.
-      setState(() => _messages.removeWhere((m) => m.id == placeholderId));
-      if (mounted) {
-        await Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => AgentSessionScreen(
-              session: result.session,
-              audioPlayerService: _audioPlayerService,
-            ),
-          ),
-        );
-      }
-    } else if (result is OutboundCallResult) {
-      _updateMessage(
-        placeholderId,
-        (m) => m.copyWith(
-          status: MessageStatus.delivered,
-          text:
-              '${result.responseText}\n\nCall placed. Conversation ID: ${result.conversationId}',
-          type: MessageType.text,
-        ),
-      );
-    } else if (result is VoiceShareResult) {
-      // Save and share the audio, then show confirmation.
-      _updateMessage(
-        placeholderId,
-        (m) => m.copyWith(
-          status: MessageStatus.delivered,
-          text: result.responseText,
-          type: MessageType.audioGeneration,
-          audioData: result.audioBytes,
-          audioMimeType: 'audio/mpeg',
-        ),
-      );
-      await VoiceShare.shareAudio(
-        result.audioBytes,
-        shareText: result.responseText,
-      );
-    } else if (result is ErrorResult) {
-      _updateMessage(
-        placeholderId,
-        (m) => m.copyWith(
-          status: MessageStatus.error,
-          text: result.message,
-          type: MessageType.error,
-        ),
-      );
-    }
-  }
-
-  /// Handles voice-mode response: synthesize TTS and render a VoiceNoteBubble.
-  Future<void> _handleVoiceResponse(
-    AIResponse aiResponse,
-    String placeholderId,
-  ) async {
-    try {
-      // Select appropriate voice based on context
-      final voiceId = VoiceSelector.selectVoice(aiResponse.voiceContext);
-
-      // Use the response text with audio tags for TTS
-      final stream = _elevenLabsClient.synthesizeSpeech(
-        aiResponse.responseText,
-        voiceId,
-      );
-
-      // Strip audio tags for display in the bubble
-      final displayText = VoiceSelector.stripAudioTags(aiResponse.responseText);
-
-      _updateMessage(
-        placeholderId,
-        (m) => m.copyWith(
-          status: MessageStatus.delivered,
-          text: displayText,
-          type: MessageType.voiceNote,
-        ),
-      );
-
-      await _audioPlayerService.playStream(stream);
-    } on TTSSynthesisError {
-      // Graceful fallback to text bubble.
-      final displayText = VoiceSelector.stripAudioTags(aiResponse.responseText);
-      _updateMessage(
-        placeholderId,
-        (m) => m.copyWith(
-          status: MessageStatus.delivered,
-          text: '$displayText\n\n(Voice output temporarily unavailable)',
-          type: MessageType.text,
-        ),
-      );
-    } catch (e) {
-      _updateMessage(
-        placeholderId,
-        (m) => m.copyWith(
-          status: MessageStatus.error,
-          text: 'Voice synthesis failed: ${e.toString()}',
-          type: MessageType.error,
-        ),
-      );
-    }
   }
 
   // -------------------------------------------------------------------------
@@ -648,8 +491,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
       if (transcript.trim().isEmpty) return;
 
-      // Process the transcript exactly like a typed message.
-      await _handleSend(transcript);
+      // Process the transcript exactly like a typed message but in voice mode.
+      await _handleSend(transcript, fromVoice: true);
     } on STTTranscriptionError catch (e) {
       // Req 11.9: show error, return to listening.
       _showWakeWordError('Could not understand audio: ${e.message}');
@@ -749,7 +592,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     try {
       final transcript = await _elevenLabsClient.transcribe(file);
       if (transcript.trim().isNotEmpty) {
-        await _handleSend(transcript);
+        await _handleSend(transcript, fromVoice: true);
       }
     } on STTTranscriptionError catch (e) {
       if (mounted) {
@@ -791,9 +634,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
   // -------------------------------------------------------------------------
 
   void _handleRetry(Message errorMessage) {
-    if (_isProcessing) return; // Don't retry while processing
+    if (_isProcessing) return;
 
-    // Find the last user message before this error bubble.
     final errorIndex = _messages.indexOf(errorMessage);
     if (errorIndex <= 0) return;
 
@@ -807,28 +649,34 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
     if (lastUserText == null) return;
 
-    // Reset the error bubble to processing state.
-    _updateMessage(
-      errorMessage.id,
-      (m) => m.copyWith(
-        status: MessageStatus.sending,
-        text: 'Kevin is processing...',
-        type: MessageType.text,
-        retryable: false,
-      ),
-    );
+    // Defer all state mutations to after the current build frame to avoid
+    // the "!_doingMountOrUpdate" viewport assertion.
+    final textToRetry = lastUserText;
+    final messageId = errorMessage.id;
 
-    // Set processing state.
-    setState(() {
-      _isProcessing = true;
-      _processingMessageId = errorMessage.id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      _updateMessage(
+        messageId,
+        (m) => m.copyWith(
+          status: MessageStatus.sending,
+          text: 'Kevin is processing...',
+          type: MessageType.text,
+          retryable: false,
+        ),
+      );
+
+      setState(() {
+        _isProcessing = true;
+        _processingMessageId = messageId;
+      });
+
+      final operation = CancelableOperation();
+      _activeRequests[messageId] = operation;
+
+      _processText(textToRetry, messageId, operation);
     });
-
-    // Create new cancellable operation.
-    final operation = CancelableOperation();
-    _activeRequests[errorMessage.id] = operation;
-
-    _processText(lastUserText, errorMessage.id, operation);
   }
 
   // -------------------------------------------------------------------------
@@ -879,24 +727,31 @@ class _ConversationScreenState extends State<ConversationScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: SciFiTheme.colorBackground,
+      resizeToAvoidBottomInset: true,
       appBar: KevinAppBar(
         onQuit: _handleQuit,
         onResponseModeChanged: _handleResponseModeChanged,
         onSettingsPressed: _handleSettingsPressed,
       ),
-      body: ConversationView(
-        messages: _messages,
-        audioPlayerService: _audioPlayerService,
-        onSuggestionTap: _handleSuggestionTap,
-        onRetry: _handleRetry,
-      ),
-      bottomNavigationBar: InputBar(
-        controller: _inputController,
-        onSend: _handleSend,
-        onVoicePressed: _handleVoicePressed,
-        onCancelProcessing: _handleCancelProcessing,
-        isRecording: _isRecording,
-        isProcessing: _isProcessing,
+      body: Column(
+        children: [
+          Expanded(
+            child: ConversationView(
+              messages: _messages,
+              audioPlayerService: _audioPlayerService,
+              onSuggestionTap: _handleSuggestionTap,
+              onRetry: _handleRetry,
+            ),
+          ),
+          InputBar(
+            controller: _inputController,
+            onSend: _handleSend,
+            onVoicePressed: _handleVoicePressed,
+            onCancelProcessing: _handleCancelProcessing,
+            isRecording: _isRecording,
+            isProcessing: _isProcessing,
+          ),
+        ],
       ),
     );
   }

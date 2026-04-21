@@ -36,7 +36,10 @@ class ElevenLabsClient implements IElevenLabsClient {
   /// Throws [OfflineException] if there is no network connectivity.
   /// Throws [TimeoutException] if the request exceeds 10 seconds.
   @override
-  Future<String> transcribe(Uint8List audioBytes) async {
+  Future<String> transcribe(
+    Uint8List audioBytes, {
+    String filename = 'audio.wav',
+  }) async {
     return _connectivityGuard.withConnectivity(() async {
       final settings = await _settingsService.loadSettings();
       final apiKey = settings.elevenLabsApiKey;
@@ -46,11 +49,7 @@ class ElevenLabsClient implements IElevenLabsClient {
         ..headers['xi-api-key'] = apiKey
         ..fields['model_id'] = 'scribe_v2'
         ..files.add(
-          http.MultipartFile.fromBytes(
-            'audio',
-            audioBytes,
-            filename: 'audio.wav',
-          ),
+          http.MultipartFile.fromBytes('audio', audioBytes, filename: filename),
         );
 
       final streamedResponse = await _httpClient.send(request);
@@ -541,7 +540,7 @@ class ElevenLabsClient implements IElevenLabsClient {
   }
 
   // ---------------------------------------------------------------------------
-  // TTS — Non-streaming bytes (for voice share)
+  // TTS — Non-streaming bytes (for voice share / agent input)
   // ---------------------------------------------------------------------------
 
   /// Synthesizes [text] to MP3 bytes in a single request (non-streaming).
@@ -568,6 +567,39 @@ class ElevenLabsClient implements IElevenLabsClient {
       if (response.statusCode != 200) {
         throw TTSSynthesisError(
           'TTS bytes request failed with status ${response.statusCode}: ${response.body}',
+        );
+      }
+
+      return response.bodyBytes;
+    });
+  }
+
+  /// Synthesizes [text] to raw PCM bytes (16kHz, mono, 16-bit little-endian).
+  /// Used to feed audio directly into the agent WebSocket as [user_audio_chunk].
+  ///
+  /// Throws [TTSSynthesisError] on failure.
+  Future<Uint8List> synthesizeSpeechPcm(String text, String voiceId) async {
+    return _connectivityGuard.withConnectivity(() async {
+      final settings = await _settingsService.loadSettings();
+      final apiKey = settings.elevenLabsApiKey;
+
+      // pcm_16000 = raw 16kHz mono 16-bit PCM — exactly what the agent expects.
+      final uri = Uri.parse(
+        '$_baseUrl/v1/text-to-speech/$voiceId?output_format=pcm_16000',
+      );
+      final response = await _httpClient.post(
+        uri,
+        headers: {'xi-api-key': apiKey, 'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'text': text,
+          'model_id': 'eleven_flash_v2_5', // Flash for low latency
+          'language_code': 'en',
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        throw TTSSynthesisError(
+          'TTS PCM request failed with status ${response.statusCode}: ${response.body}',
         );
       }
 
